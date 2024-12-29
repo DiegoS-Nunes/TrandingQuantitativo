@@ -1,9 +1,14 @@
 import os
+import re
 import json
+import zipfile
+import requests
 import pandas as pd
 import pyarrow as pa
+from io import BytesIO
 import MetaTrader5 as mt5
 import pyarrow.parquet as pq
+from bs4 import BeautifulSoup
 from lib import timeframe_dict
 from datetime import datetime, timedelta
 
@@ -44,7 +49,7 @@ class bd():
             os.mkdir('ohlc')
             for timeframe_dir in timeframe_dict.keys():
                 try:
-                    os.mkdir(f'ohlc\\{timeframe_dir}')
+                    os.mkdir(f'ohlc/{timeframe_dir}')
                 except Exception as e:
                     print(f"Erro ao criar as pastas de timeframe: {e}")
         if not os.path.isdir('ticks'):
@@ -58,7 +63,7 @@ class bd():
         initial_date = datetime(2000, 1, 1)
         final_date = datetime.now()
     
-        path = f'ohlc\\{timeframe}\\{symbol}_{timeframe}.parquet'
+        path = f'ohlc/{timeframe}/{symbol}_{timeframe}.parquet'
 
         if not os.path.exists(path):
             df = pd.DataFrame(columns=['time', 'open', 'high', 'low', 'close', 'tick_volume', 'spread', 'real_volume'])
@@ -80,13 +85,14 @@ class bd():
         while True:
             data_aux = mt5.copy_rates_range(symbol, timeframe, initial_date, min(final_date_aux, final_date)) 
             df_aux = pd.DataFrame(data_aux)
+            df_aux['time'] = pd.to_datetime(df_aux['time'], unit='s')
             df = pd.concat([df_aux, df], ignore_index=True)
-
+            print(df)
             if final_date_aux > final_date: break
             
             initial_date = df_aux['time'].max()
             final_date_aux = initial_date + timedelta_default
-
+        
         df.sort_values(by='time', ascending=False, inplace=True)
         print(f"Salvando {len(df)} linhas no arquivo Parquet.")
         self.salvar_parquet(path, df)
@@ -94,31 +100,153 @@ class bd():
     def update_ticks(self, symbol):
         initial_date = datetime(2020, 1, 1)
         final_date = datetime.now()
-        path = f'ticks\\{symbol}_ticksrange.parquet'
+        path = f'ticks/{symbol}_ticksrange.parquet'
 
         if not os.path.exists(path):
             df = pd.DataFrame(columns=['time', 'bid', 'ask', 'last', 'volume', 'time_msc', 'flags', 'volume_real'])
         else:
             df = pq.ParquetFile(path).read().to_pandas()
             df['time'] = pd.to_datetime(df['time'])
+            df.sort_values(by='time', ascending=False, inplace=True)
             if df['time'].max() < datetime.now(): 
                 initial_date = df['time'].max()
 
         try:
             ticks_data = mt5.copy_ticks_range(symbol, initial_date, final_date, mt5.COPY_TICKS_TRADE)
             df_aux = pd.DataFrame(ticks_data)
-            print(f"Coletados {len(df_aux)} novos ticks para {symbol} entre {initial_date} e {final_date}.")
         except Exception as e:
             print('Erro ao obter os dados de ticks: ' + str(e))
             return
 
         if len(df_aux) > 0:
             df_aux['time'] = pd.to_datetime(df_aux['time'], unit='s')
+            df_aux['time_msc'] = pd.to_datetime(df['time_msc'])
+            df_aux.sort_values(by='time', ascending=False, inplace=True)
             df = pd.concat([df_aux, df], ignore_index=True)
             self.salvar_parquet(path, df)
         else:
             print("Nenhum dado novo encontrado.")
 
+    def listar_empresas(self):
+        BASE_URL = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS/"
+        response = requests.get(BASE_URL)
+        if response.status_code != 200:
+            print("Erro ao acessar o site da CVM.")
+            return []
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        zip_files = [link.get('href') for link in soup.find_all('a') if link.get('href').endswith('.zip')]
+        if not zip_files:
+            print("Nenhum arquivo ZIP encontrado.")
+            return []
+        
+        empresas = set()
+        
+        for zip_file in zip_files:
+            url = f"{BASE_URL}{zip_file}"
+            response = requests.get(url)
+            if response.status_code != 200:
+                print(f"Erro ao baixar o arquivo ZIP: {zip_file}")
+                continue
+            
+            with zipfile.ZipFile(BytesIO(response.content)) as zip_file:
+                csv_name = next((name for name in zip_file.namelist() if name.endswith('.csv')), None)
+                if not csv_name:
+                    print(f"Nenhum arquivo CSV encontrado no ZIP: {zip_file}")
+                    continue
+                
+                with zip_file.open(csv_name) as f:
+                    df = pd.read_csv(f, sep=';', encoding='ISO-8859-1')
+                
+                empresas.update(df['DENOM_CIA'].unique())
+        
+        return sorted(empresas)    
+
+    def processar_dados_empresa(self, empresa):
+        BASE_URL = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS/"
+        BASE_DIR = "./fundamentus"
+        
+        response = requests.get(BASE_URL)
+        if response.status_code != 200:
+            print("Erro ao acessar o site da CVM.")
+            return
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        zip_files = [link.get('href') for link in soup.find_all('a') if link.get('href').endswith('.zip')]
+        
+        # DataFrame temporário para acumular os dados
+        df_final = pd.DataFrame()
+        
+        try:
+            for zip_file_name in zip_files:
+                url = f"{BASE_URL}{zip_file_name}"
+                response = requests.get(url)
+                if response.status_code == 200:
+                    with zipfile.ZipFile(BytesIO(response.content)) as zip_file:
+                        for csv_name in zip_file.namelist():
+                            # Verifica se o arquivo CSV é o DRE
+                            if csv_name.endswith('.csv') and 'DRE' in csv_name:
+                                with zip_file.open(csv_name) as f:
+                                    df = pd.read_csv(f, sep=';', encoding='ISO-8859-1')
+                                
+                                # Normaliza o nome da empresa para comparação
+                                df_empresa = df[df['DENOM_CIA'].apply(lambda x: re.sub(r'\s+', ' ', x.strip()).lower()) == re.sub(r'\s+', ' ', empresa.strip()).lower()]
+                                
+                                if not df_empresa.empty:
+                                    # Extrai o ano do nome do arquivo ZIP
+                                    ano = int(zip_file_name.split('_')[-1].split('.')[0])
+                                    
+                                    # Adiciona a coluna 'Ano' ao DataFrame
+                                    df_empresa = df_empresa.copy()  # Evita o SettingWithCopyWarning
+                                    df_empresa.loc[:, 'Ano'] = ano
+                                    
+                                    # Adiciona a coluna 'Tipo' ao DataFrame
+                                    tipo_consolidacao = 'con' if 'con' in csv_name else 'ind'
+                                    df_empresa.loc[:, 'Tipo'] = tipo_consolidacao
+                                    
+                                    # Filtra apenas o último exercício
+                                    df_empresa = df_empresa[df_empresa['ORDEM_EXERC'] == 'ÚLTIMO']
+                                    
+                                    # Verifica se há dados após a filtragem
+                                    if df_empresa.empty:
+                                        print(f"Nenhum dado encontrado para o último exercício da empresa {empresa}.")
+                                        continue
+                                    
+                                    # Pivotar o DataFrame para transformar as contas em colunas
+                                    df_pivot = df_empresa.pivot_table(
+                                        index=['Ano', 'Tipo', 'CNPJ_CIA', 'DT_REFER', 'DENOM_CIA', 'ESCALA_MOEDA', 'DT_INI_EXERC', 'DT_FIM_EXERC'],
+                                        columns='DS_CONTA',
+                                        values='VL_CONTA',
+                                        aggfunc='first'  # Assume que cada combinação de índice e coluna tem apenas um valor
+                                    ).reset_index()
+                                    
+                                    # Renomear o índice para facilitar a leitura
+                                    df_pivot.columns.name = None  # Remove o nome das colunas (DS_CONTA)
+                                    df_pivot = df_pivot.rename_axis(None, axis=1)
+                                    
+                                    # Concatena os dados no DataFrame final
+                                    df_final = pd.concat([df_final, df_pivot], ignore_index=True)
+                                    print('Concatenado')
+                else:
+                    print(f"Erro ao baixar o arquivo ZIP: {zip_file_name}")
+            
+            # Verifica se há dados no DataFrame final
+            if df_final.empty:
+                print(f"Nenhum dado encontrado para a empresa {empresa}.")
+                return
+            
+            # Define o caminho do arquivo Parquet
+            parquet_path = os.path.join(BASE_DIR, f"{empresa}_DRE.parquet")
+            
+            # Salva o DataFrame final em Parquet
+            self.salvar_parquet(parquet_path, df_final)
+            print(f"Dados de {empresa} salvos em Parquet com sucesso.")
+            print(f"FINALIZADO!")
+        except Exception as e:
+            print(f"Erro ao obter fundamentos da empresa {empresa}: {str(e)}")
+   
     def slice(self, type, symbol, initial_date, final_date, timeframe=None):
         path = f'ohlc\\{timeframe}\\{symbol}_{timeframe}.parquet' if type == 'ohlc' else f'ticks\\{symbol}_ticksrange.parquet'
         if not os.path.exists(path):
@@ -135,13 +263,20 @@ class bd():
     def read_ticks(self, symbol, initial_date=datetime(1970, 1, 1), final_date=datetime.now()):
         return self.slice('ticks', symbol, initial_date, final_date)
 
+    def read_fundamentus(self, empresa):
+        path = f'fundamentus\\{empresa}_DRE.parquet'
+        df = pq.ParquetFile(path).read().to_pandas()
+        return df
+    
     def get_symbols(self):
         pass
 
     def salvar_parquet(self, path, df):
         try:
-            table = pa.Table.from_pandas(df.sort_values(by='time', ascending=False))
-            pq.write_table(table, path, compression='snappy')
+            table = pa.Table.from_pandas(df)
+            writer = pq.ParquetWriter(path, table.schema, compression='snappy')
+            writer.write_table(table)
+            writer.close()
             print(f"Sucesso ao salvar o arquivo Parquet!")
         except Exception as e:
             print(f"Erro ao escrever o arquivo Parquet: {e}")
