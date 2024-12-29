@@ -280,8 +280,9 @@ class bd():
                 
                 # Concatena os novos dados com os existentes
                 df_final = pd.concat([df_existente, df_final], ignore_index=True)
-                df_final = df.apply(pd.to_numeric, errors='ignore')
+                df_final = df_final.apply(pd.to_numeric, errors='ignore')
                 df_final = df_final.dropna(axis=1, how='all')
+                df_final = df_final.fillna(0)
 
                 # Salva o DataFrame final em Parquet
                 self.salvar_parquet(parquet_path, df_final)
