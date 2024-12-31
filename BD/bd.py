@@ -232,12 +232,20 @@ class bd():
                                         # Evita o SettingWithCopyWarning
                                         df_empresa = df_empresa.copy()
                                         
-                                        # Adiciona a coluna 'Ano' ao DataFrame
-                                        df_empresa.loc[:, 'ano'] = ano
+                                        # Adiciona a coluna 'ANO' ao DataFrame
+                                        df_empresa.loc[:, 'ANO'] = ano
                                         
-                                        # Adiciona a coluna 'Tipo' ao DataFrame
+                                        # Adiciona a coluna 'TIPO' ao DataFrame
                                         tipo_consolidacao = 'con' if 'con' in csv_name else 'ind'
-                                        df_empresa.loc[:, 'tipo'] = tipo_consolidacao
+                                        df_empresa.loc[:, 'TIPO'] = tipo_consolidacao
+
+                                        # Adiciona a coluna 'METODO' ao DataFrame
+                                        if '_MD' in csv_name:
+                                            metodo = 'Direto'
+                                            df_empresa.loc[:, 'METODO'] = metodo
+                                        elif '_MI' in csv_name:
+                                            metodo = 'Indireto'
+                                            df_empresa.loc[:, 'METODO'] = metodo
                                         
                                         # Filtra apenas o último exercício
                                         df_empresa = df_empresa[df_empresa['ORDEM_EXERC'] == 'ÚLTIMO']
@@ -250,10 +258,13 @@ class bd():
                                         # Define as colunas do índice com base no relatório
                                         if relatorio in ['BPA', 'BPP']:
                                             # Para BPA e BPP, não inclui 'DT_INI_EXERC' no índice
-                                            index_cols = ['ano', 'tipo', 'CNPJ_CIA', 'DT_REFER', 'DENOM_CIA', 'ESCALA_MOEDA', 'DT_FIM_EXERC']
+                                            index_cols = ['ANO', 'TIPO', 'CNPJ_CIA', 'CD_CVM', 'DT_REFER', 'DENOM_CIA', 'ESCALA_MOEDA', 'DT_FIM_EXERC', 'CD_CONTA']
+                                        elif relatorio in ['DRE']:
+                                            # Para DRE, inclui 'DT_INI_EXERC' no índice
+                                            index_cols = ['ANO', 'TIPO', 'CNPJ_CIA', 'CD_CVM', 'DT_REFER', 'DENOM_CIA', 'ESCALA_MOEDA', 'DT_INI_EXERC', 'DT_FIM_EXERC', 'CD_CONTA']
                                         else:
-                                            # Para DRE e DFC, inclui 'DT_INI_EXERC' no índice
-                                            index_cols = ['ano', 'tipo', 'CNPJ_CIA', 'DT_REFER', 'DENOM_CIA', 'ESCALA_MOEDA', 'DT_INI_EXERC', 'DT_FIM_EXERC']
+                                            # Para DRE, inclui 'DT_INI_EXERC' e 'METODO' no índice
+                                            index_cols = ['ANO', 'TIPO', 'METODO', 'CD_CVM', 'CNPJ_CIA', 'DT_REFER', 'DENOM_CIA', 'ESCALA_MOEDA', 'DT_INI_EXERC', 'DT_FIM_EXERC', 'CD_CONTA']
                                         
                                         # Pivotar o DataFrame para transformar as contas em colunas
                                         df_pivot = df_empresa.pivot_table(
@@ -280,7 +291,10 @@ class bd():
                 
                 # Concatena os novos dados com os existentes
                 df_final = pd.concat([df_existente, df_final], ignore_index=True)
-                df_final = df_final.apply(pd.to_numeric, errors='ignore')
+                try:
+                    df_final = df_final.apply(pd.to_numeric)
+                except Exception as e:
+                    pass
                 df_final = df_final.dropna(axis=1, how='all')
                 df_final = df_final.fillna(0)
 
@@ -290,7 +304,10 @@ class bd():
             except Exception as e:
                 print(f"Erro ao obter fundamentos da empresa {empresa} para o relatório {relatorio}: {str(e)}")
             
-                print(f"FINALIZADO!")
+            print(f"FINALIZADO!")
+
+    def update_indicators():
+        pass
 
     def slice(self, type, symbol, initial_date, final_date, timeframe=None):
         path = f'ohlc\\{timeframe}\\{symbol}_{timeframe}.parquet' if type == 'ohlc' else f'ticks\\{symbol}_ticksrange.parquet'
