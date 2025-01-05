@@ -167,7 +167,7 @@ class bd:
 
         return sorted(empresas)
 
-    def processar_arquivo_dfp(self, zip_file_name, empresa, dfs_relatorios, empresa_dir, ano):
+    def update_dfp(self, zip_file_name, empresa, dfs_relatorios, empresa_dir, ano):
         url = f"{self.BASE_URL_DFP}{zip_file_name}"
         response = requests.get(url)
         if response.status_code != 200:
@@ -248,7 +248,7 @@ class bd:
                                     )
                                     print(f"Dados de {relatorio} {ano} atualizados.")
 
-    def processar_arquivo_fre(self, zip_file_name, empresa, dfs_relatorios, ano):
+    def update_fre(self, zip_file_name, empresa, dfs_relatorios, ano):
         url = f"{self.BASE_URL_FRE}{zip_file_name}"
         response = requests.get(url)
         if response.status_code != 200:
@@ -372,7 +372,7 @@ class bd:
                 continue
 
             # Processa o arquivo ZIP
-            self.processar_arquivo_dfp(zip_file_name, empresa, dfs_relatorios, empresa_dir, ano)
+            self.update_dfp(zip_file_name, empresa, dfs_relatorios, empresa_dir, ano)
 
         # Processa cada arquivo ZIP do FRE
         for zip_file_name in zip_files_fre:
@@ -390,7 +390,7 @@ class bd:
                         continue
 
             # Processa o arquivo ZIP
-            self.processar_arquivo_fre(zip_file_name, empresa, dfs_relatorios, ano)
+            self.update_fre(zip_file_name, empresa, dfs_relatorios, ano)
 
         # Salva os DataFrames processados em arquivos Parquet
         for relatorio, df in dfs_relatorios.items():
@@ -466,7 +466,7 @@ class bd:
                     df['time_msc'] = pd.to_datetime(df['time_msc'], unit='ms')
                 return df.loc[(df['time'] >= initial_date) & (df['time'] < final_date)]
 
-    def calcular_indicadores_anuais(self, empresa):
+    def update_indicadores(self, empresa):
         # Carrega os dados dos relatórios
         dre = self.read_fundamentus(empresa, 'DRE')
         bpa = self.read_fundamentus(empresa, 'BPA')
@@ -576,7 +576,7 @@ bd_instance.update_fundamentus('BCO BTG PACTUAL S.A.')
 tf= datetime.now()
 print (tf-ti)
 
-df = bd_instance.calcular_indicadores_anuais('BCO BTG PACTUAL S.A.')
+df = bd_instance.update_indicadores('BCO BTG PACTUAL S.A.')
 df
 
 df = bd_instance.read_fundamentus('BCO BTG PACTUAL S.A.', relatorio='DISTRIBUICAO CAPITAL')
