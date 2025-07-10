@@ -1,0 +1,50 @@
+credential.json
+ohlc
+ticks
+fundamentus
+#Indicadores.txt
+#OrdemContas.txt
+#MER.png
+#sql.sql
+pyvenv.cfg
+
+!/../cvm_data.db
+
+# Ambiente virtual
+venv/
+.env
+*.env
+
+# Arquivos Python compilados
+__pycache__/
+*.py[cod]
+
+# IDEs
+.vscode/
+.idea/
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Logs e arquivos temporários
+*.log
+*.sqlite3
+*.db
+*.parquet
+
+# Cache
+*.egg-info/
+.eggs/
+*.bak
+
+# Testes
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+
+share/
+scripts/
+lib/
+include/

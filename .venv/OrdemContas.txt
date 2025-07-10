@@ -1,0 +1,7 @@
+1 bpa
+2 bpp
+3 dre
+4 dra
+5 dmpl
+6 dfc
+7 dva
